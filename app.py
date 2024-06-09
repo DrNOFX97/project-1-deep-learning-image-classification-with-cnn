@@ -1,11 +1,13 @@
 import os
-import random
-import requests
-from flask import Flask, request, render_template_string, send_from_directory, redirect, url_for
+import ssl
+from flask import Flask, request, render_template_string, send_from_directory
 from werkzeug.utils import secure_filename
 from tensorflow.keras.applications.mobilenet_v2 import MobileNetV2, preprocess_input, decode_predictions
 from tensorflow.keras.preprocessing.image import img_to_array, load_img
 import numpy as np
+
+# Disable SSL certificate verification
+ssl._create_default_https_context = ssl._create_unverified_context
 
 app = Flask(__name__)
 
@@ -14,6 +16,7 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
+# Load the MobileNetV2 model pre-trained on ImageNet
 model = MobileNetV2(weights='imagenet')
 
 home_template = '''
@@ -33,9 +36,8 @@ home_template = '''
             max-width: 600px;
         }
         .jumbotron {
-            background-image: url('{{ bg_image }}');
-            background-size: cover;
             padding: 100px;
+            background-color: #007bff;
             color: white;
             text-align: center;
         }
@@ -84,9 +86,8 @@ results_template = '''
             max-width: 800px;
         }
         .jumbotron {
-            background-image: url('{{ bg_image }}');
-            background-size: cover;
             padding: 100px;
+            background-color: #28a745;
             color: white;
             text-align: center;
         }
@@ -107,11 +108,11 @@ results_template = '''
 <body>
     <div class="container">
         <div class="jumbotron">
-            <h1 class="display-4">This seems to be...</h1>
+            <h1 class="display-4">WHAT IS IT?</h1>
         </div>
         {% for idx in range(filenames|length) %}
         <div class="result-container">
-            <h2>Uploaded Image: {{ filenames[idx] }}</h2>
+            <h2>This seems to be a {{ predictions_list[idx][0]['class_name'] }}</h2>
             <img src="{{ url_for('uploaded_file', filename=filenames[idx]) }}" alt="Uploaded Image">
             <h3>Predictions</h3>
             <table class="table table-striped">
@@ -142,34 +143,9 @@ results_template = '''
 </html>
 '''
 
-bg_image_urls = []
-
-
-def download_random_images(num_images):
-    global bg_image_urls
-    for _ in range(num_images):
-        response = requests.get('https://picsum.photos/1200/800')
-        if response.status_code == 200:
-            filename = f"{random.randint(10000, 99999)}.jpg"
-            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            with open(filepath, 'wb') as f:
-                f.write(response.content)
-            bg_image_urls.append(filepath)
-
-
-def choose_random_bg_image(bg_image_urls):
-    return random.choice(bg_image_urls)
-
-
 @app.route('/')
 def index():
-    return render_template_string(home_template, bg_image=choose_random_bg_image(bg_image_urls))
-
-
-@app.route('/loading')
-def loading():
-    return render_template('loading.html')
-
+    return render_template_string(home_template)
 
 @app.route('/upload', methods=['POST'])
 def upload_files():
@@ -203,16 +179,11 @@ def upload_files():
             predictions_list.append(predictions)
 
     return render_template_string(results_template, filenames=filenames,
-                                   predictions_list=predictions_list,
-                                   bg_image=choose_random_bg_image(bg_image_urls))
-
+                                  predictions_list=predictions_list)
 
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
-
 if __name__ == "__main__":
-    # Download 50 random images for background
-    download_random_images(50)
     app.run(debug=True)
