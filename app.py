@@ -2,7 +2,7 @@ import os
 import ssl
 from flask import Flask, request, render_template_string, send_from_directory
 from werkzeug.utils import secure_filename
-from tensorflow.keras.applications.mobilenet_v2 import MobileNetV2, preprocess_input, decode_predictions
+from tensorflow.keras.applications.mobilenet_v2 import MobileNetV2, preprocess_input
 from tensorflow.keras.preprocessing.image import img_to_array, load_img
 import numpy as np
 
@@ -19,6 +19,27 @@ app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 # Load the MobileNetV2 model pre-trained on ImageNet
 model = MobileNetV2(weights='imagenet')
 
+# Define the classes we care about (CIFAR-10)
+cifar10_classes = [
+    'airplane', 'automobile', 'bird', 'cat', 'deer',
+    'dog', 'frog', 'horse', 'ship', 'truck'
+]
+
+# A mapping of CIFAR-10 class names to the closest ImageNet class indices
+cifar10_to_imagenet_indices = {
+    'airplane': 404,     # Index for 'airliner'
+    'automobile': 817,   # Index for 'sports_car'
+    'bird': 16,          # Index for 'partridge'
+    'cat': 281,          # Index for 'tabby_cat'
+    'deer': 349,         # Index for 'ox'
+    'dog': 208,          # Index for 'Golden_retriever'
+    'frog': 31,          # Index for 'tree_frog'
+    'horse': 340,        # Index for 'sorrel'
+    'ship': 510,         # Index for 'liner'
+    'truck': 569         # Index for 'trailer_truck'
+}
+
+# Template for the homepage
 home_template = '''
 <!DOCTYPE html>
 <html lang="en">
@@ -69,6 +90,7 @@ home_template = '''
 </html>
 '''
 
+# Template for the results page
 results_template = '''
 <!DOCTYPE html>
 <html lang="en">
@@ -166,20 +188,31 @@ def upload_files():
             file.save(filepath)
             filenames.append(filename)
 
+            # Preprocess the image
             image = load_img(filepath, target_size=(224, 224))
             image = img_to_array(image)
             image = np.expand_dims(image, axis=0)
             image = preprocess_input(image)
 
+            # Predict the image class
             preds = model.predict(image)
-            decoded_preds = decode_predictions(preds, top=5)[0]
+            
+            # Extract the probabilities for CIFAR-10 classes
+            filtered_preds = []
+            for i, class_name in enumerate(cifar10_classes):
+                imagenet_index = cifar10_to_imagenet_indices[class_name]
+                prob = preds[0][imagenet_index]
+                filtered_preds.append({
+                    'class_id': i + 1,
+                    'class_name': class_name,
+                    'probability': round(prob * 100, 2)
+                })
 
-            predictions = [{'class_id': i + 1, 'class_name': pred[1], 'probability': round(pred[2] * 100, 2)} for
-                           i, pred in enumerate(decoded_preds)]
-            predictions_list.append(predictions)
+            # Sort the filtered predictions by probability
+            filtered_preds = sorted(filtered_preds, key=lambda x: x['probability'], reverse=True)
+            predictions_list.append(filtered_preds)
 
-    return render_template_string(results_template, filenames=filenames,
-                                  predictions_list=predictions_list)
+    return render_template_string(results_template, filenames=filenames, predictions_list=predictions_list)
 
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
